@@ -392,15 +392,19 @@ with tab3:
     # Format display copy (keep raw floats for styling, format after)
     epa_display = epa_table.copy()
 
-    styled = (
-        epa_display.style
-        .format("{:.1%}", subset=["Conv Rate"])
-        .format("{:.0f}", subset=["Go Attempts"])
-        .format("{:+.3f}", subset=["EPA if Conv", "EPA if Failed", "Exp EPA (Go)", "Avg Punt EPA", "EPA Swing"])
-        .background_gradient(subset=["EPA Swing"], cmap="RdYlGn", vmin=-1.5, vmax=1.5)
-    )
-
-    st.dataframe(styled, use_container_width=True)
+    try:
+        import matplotlib  # noqa: F401 — required by pandas Styler background_gradient
+        styled = (
+            epa_display.style
+            .format("{:.1%}", subset=["Conv Rate"])
+            .format("{:.0f}", subset=["Go Attempts"])
+            .format("{:+.3f}", subset=["EPA if Conv", "EPA if Failed", "Exp EPA (Go)", "Avg Punt EPA", "EPA Swing"])
+            .background_gradient(subset=["EPA Swing"], cmap="RdYlGn", vmin=-1.5, vmax=1.5)
+        )
+        st.dataframe(styled, use_container_width=True)
+    except Exception:
+        st.dataframe(epa_display, use_container_width=True)
+        st.caption("Styling unavailable in this environment; showing plain table.")
 
     st.markdown("""
 | EPA Swing | Interpretation |
