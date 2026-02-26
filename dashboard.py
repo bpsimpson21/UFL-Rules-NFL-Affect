@@ -224,20 +224,21 @@ def compute_epa_swing(season: int, exclude_2min: bool):
 # ══════════════════════════════════════════════════════════════════════════════
 # BRAND CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-TEAL   = "#0fbcce"
-GOLD   = "#c8a84b"
-BG     = "#0e1117"
-CARD   = "#1a1f2e"
-SIDEBAR_BG = "#131720"
-TEXT   = "#e8eaed"
-MUTED  = "#8b949e"
+TEAL     = "#0fbcce"
+GOLD     = "#c8a84b"
+CC_GREEN = "#006a4e"
+BG       = "#ffffff"
+CARD     = "#f4f6f8"
+SIDEBAR_BG = "#f0f2f5"
+TEXT     = "#1e2329"
+MUTED    = "#5c6370"
 
 CHART_LAYOUT = dict(
-    paper_bgcolor=CARD,
+    paper_bgcolor=BG,
     plot_bgcolor=CARD,
     font=dict(color=TEXT, family="sans-serif"),
-    xaxis=dict(gridcolor="rgba(255,255,255,0.07)", linecolor="rgba(255,255,255,0.13)", tickfont=dict(color=MUTED)),
-    yaxis=dict(gridcolor="rgba(255,255,255,0.07)", linecolor="rgba(255,255,255,0.13)", tickfont=dict(color=MUTED)),
+    xaxis=dict(gridcolor="rgba(0,0,0,0.07)", linecolor="rgba(0,0,0,0.13)", tickfont=dict(color=MUTED)),
+    yaxis=dict(gridcolor="rgba(0,0,0,0.07)", linecolor="rgba(0,0,0,0.13)", tickfont=dict(color=MUTED)),
     margin=dict(t=10, b=0, l=0, r=0),
 )
 
@@ -252,16 +253,24 @@ st.markdown(f"""
 }}
 [data-testid="stHeader"] {{
     background-color: {BG};
-    border-bottom: 1px solid {TEAL}33;
+    border-bottom: 2px solid {CC_GREEN};
 }}
 body, .stMarkdown, .stText, p, li {{
     color: {TEXT};
 }}
 
+/* ── Page border ────────────────────────────────────────────────────── */
+.block-container {{
+    border: 3px solid {CC_GREEN};
+    border-radius: 10px;
+    padding: 2rem 3rem !important;
+    margin-top: 1rem;
+}}
+
 /* ── Sidebar ────────────────────────────────────────────────────────── */
 [data-testid="stSidebar"] {{
     background-color: {SIDEBAR_BG};
-    border-right: 1px solid {TEAL}33;
+    border-right: 2px solid {CC_GREEN};
 }}
 [data-testid="stSidebar"] * {{
     color: {TEXT} !important;
@@ -280,7 +289,7 @@ body, .stMarkdown, .stText, p, li {{
 .stTabs [data-baseweb="tab-list"] {{
     gap: 4px;
     background-color: transparent;
-    border-bottom: 1px solid {TEAL}33;
+    border-bottom: 1px solid {CC_GREEN}55;
 }}
 .stTabs [data-baseweb="tab"] {{
     background-color: transparent;
@@ -309,7 +318,7 @@ body, .stMarkdown, .stText, p, li {{
     border: 1px solid {TEAL}44;
     border-radius: 10px;
     padding: 18px 22px 14px 22px;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }}
 [data-testid="metric-container"] label,
 [data-testid="stMetricLabel"] {{
@@ -337,12 +346,12 @@ h4 {{
 
 /* ── Dividers ───────────────────────────────────────────────────────── */
 hr {{
-    border-color: {TEAL}22 !important;
+    border-color: {CC_GREEN}44 !important;
 }}
 
 /* ── Dataframe container ────────────────────────────────────────────── */
 [data-testid="stDataFrame"] {{
-    border: 1px solid {TEAL}22;
+    border: 1px solid {CC_GREEN}44;
     border-radius: 8px;
     overflow: hidden;
 }}
