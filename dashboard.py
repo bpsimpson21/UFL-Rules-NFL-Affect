@@ -7,6 +7,7 @@ Modeling assumption: We are modeling rule impacts, not game theory
 responses. Teams are assumed to behave exactly as they did historically.
 """
 
+import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -15,6 +16,7 @@ import nfl_data_py as nfl
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="UFL Rule Impact Analyzer",
+    page_icon="🎙️",
     layout="wide",
 )
 
@@ -220,12 +222,151 @@ def compute_epa_swing(season: int, exclude_2min: bool):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# BRAND CONSTANTS
+# ══════════════════════════════════════════════════════════════════════════════
+TEAL   = "#0fbcce"
+GOLD   = "#c8a84b"
+BG     = "#0e1117"
+CARD   = "#1a1f2e"
+SIDEBAR_BG = "#131720"
+TEXT   = "#e8eaed"
+MUTED  = "#8b949e"
+
+CHART_LAYOUT = dict(
+    paper_bgcolor=CARD,
+    plot_bgcolor=CARD,
+    font=dict(color=TEXT, family="sans-serif"),
+    xaxis=dict(gridcolor="#ffffff11", linecolor="#ffffff22", tickfont=dict(color=MUTED)),
+    yaxis=dict(gridcolor="#ffffff11", linecolor="#ffffff22", tickfont=dict(color=MUTED)),
+    margin=dict(t=10, b=0, l=0, r=0),
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CSS INJECTION
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown(f"""
+<style>
+/* ── Global background & text ───────────────────────────────────────── */
+[data-testid="stAppViewContainer"] {{
+    background-color: {BG};
+}}
+[data-testid="stHeader"] {{
+    background-color: {BG};
+    border-bottom: 1px solid {TEAL}33;
+}}
+body, .stMarkdown, .stText, p, li {{
+    color: {TEXT};
+}}
+
+/* ── Sidebar ────────────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {{
+    background-color: {SIDEBAR_BG};
+    border-right: 1px solid {TEAL}33;
+}}
+[data-testid="stSidebar"] * {{
+    color: {TEXT} !important;
+}}
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stCheckbox label,
+[data-testid="stSidebar"] .stNumberInput label {{
+    color: {MUTED} !important;
+    font-size: 0.78rem !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    font-weight: 600 !important;
+}}
+
+/* ── Tabs ───────────────────────────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 4px;
+    background-color: transparent;
+    border-bottom: 1px solid {TEAL}33;
+}}
+.stTabs [data-baseweb="tab"] {{
+    background-color: transparent;
+    color: {MUTED};
+    font-weight: 700;
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 4px 4px 0 0;
+    padding: 8px 22px;
+    border: none;
+}}
+.stTabs [aria-selected="true"] {{
+    color: {TEAL} !important;
+    background-color: {TEAL}14 !important;
+    border-bottom: 2px solid {TEAL} !important;
+}}
+.stTabs [data-baseweb="tab"]:hover {{
+    color: {TEXT} !important;
+    background-color: {TEAL}0d !important;
+}}
+
+/* ── KPI metric cards ───────────────────────────────────────────────── */
+[data-testid="metric-container"] {{
+    background-color: {CARD};
+    border: 1px solid {TEAL}44;
+    border-radius: 10px;
+    padding: 18px 22px 14px 22px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+}}
+[data-testid="metric-container"] label,
+[data-testid="stMetricLabel"] {{
+    color: {MUTED} !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.09em !important;
+    text-transform: uppercase !important;
+}}
+[data-testid="stMetricValue"] > div {{
+    color: {TEAL} !important;
+    font-size: 1.9rem !important;
+    font-weight: 800 !important;
+}}
+
+/* ── Section headings (####) ────────────────────────────────────────── */
+h4 {{
+    color: {GOLD} !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    font-size: 0.8rem !important;
+    margin-top: 1.2rem !important;
+}}
+
+/* ── Dividers ───────────────────────────────────────────────────────── */
+hr {{
+    border-color: {TEAL}22 !important;
+}}
+
+/* ── Dataframe container ────────────────────────────────────────────── */
+[data-testid="stDataFrame"] {{
+    border: 1px solid {TEAL}22;
+    border-radius: 8px;
+    overflow: hidden;
+}}
+
+/* ── Info / caption boxes ───────────────────────────────────────────── */
+[data-testid="stCaptionContainer"] p {{
+    color: {MUTED} !important;
+    font-size: 0.78rem !important;
+}}
+</style>
+""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # UI
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("Controls")
+    st.markdown(
+        f"<p style='color:{TEAL};font-weight:800;font-size:0.8rem;"
+        f"letter-spacing:0.1em;text-transform:uppercase;margin-bottom:16px;'>"
+        f"🎙️ GUS &amp; DAVE SPORTS</p>",
+        unsafe_allow_html=True,
+    )
     season = st.selectbox("Season", [2025, 2024, 2023], index=0)
     exclude_2min = st.checkbox(
         "Exclude punts inside 2-minute warning", value=True,
@@ -235,12 +376,58 @@ with st.sidebar:
     min_punts = st.number_input(
         "Min punts to show team (punt table)", min_value=0, value=0, step=5,
     )
+    st.markdown(
+        f"<p style='color:{MUTED};font-size:0.68rem;margin-top:32px;'>Created by Brennan Simpson</p>",
+        unsafe_allow_html=True,
+    )
 
-# ── Title ──────────────────────────────────────────────────────────────────────
-st.title("UFL Rule Impact — NFL Regular Season Analysis")
-st.caption(
-    "**Modeling assumption:** We are modeling rule impacts, not game theory responses. "
-    "Teams are assumed to behave exactly as they did historically."
+# ── Brand header ───────────────────────────────────────────────────────────────
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "gd_logo.png")
+header_left, header_right = st.columns([3, 1])
+
+with header_left:
+    logo_shown = False
+    if os.path.exists(LOGO_PATH):
+        logo_col, title_col = st.columns([1, 6])
+        with logo_col:
+            st.image(LOGO_PATH, width=64)
+        with title_col:
+            st.markdown(
+                f"<h1 style='color:{TEXT};font-weight:900;font-size:1.75rem;"
+                f"letter-spacing:-0.01em;margin:0;padding:0;line-height:1.15;'>"
+                f"UFL RULE IMPACT</h1>"
+                f"<p style='color:{MUTED};font-size:0.85rem;margin:2px 0 0 0;'>"
+                f"NFL Regular Season Analysis</p>",
+                unsafe_allow_html=True,
+            )
+        logo_shown = True
+    if not logo_shown:
+        st.markdown(
+            f"<h1 style='color:{TEXT};font-weight:900;font-size:1.75rem;"
+            f"letter-spacing:-0.01em;margin:0;padding:0;line-height:1.15;'>"
+            f"UFL RULE IMPACT</h1>"
+            f"<p style='color:{MUTED};font-size:0.85rem;margin:2px 0 0 0;'>"
+            f"NFL Regular Season Analysis</p>",
+            unsafe_allow_html=True,
+        )
+
+with header_right:
+    st.markdown(
+        f"<div style='text-align:right;padding-top:6px;'>"
+        f"<p style='color:{TEAL};font-weight:800;font-size:0.72rem;"
+        f"letter-spacing:0.1em;text-transform:uppercase;margin:0;'>"
+        f"🎙️ Gus &amp; Dave Sports Podcast</p>"
+        f"<p style='color:{MUTED};font-size:0.68rem;margin:3px 0 0 0;'>"
+        f"Created by Brennan Simpson</p>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+st.markdown(
+    f"<p style='color:{MUTED};font-size:0.78rem;margin:10px 0 4px 0;'>"
+    f"<em>Modeling assumption: We are modeling rule impacts, not game theory responses. "
+    f"Teams are assumed to behave exactly as they did historically.</em></p>",
+    unsafe_allow_html=True,
 )
 st.divider()
 
@@ -262,25 +449,26 @@ team_punt_display = (
 )
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["Punts", "Field Goals", "4th Down Decision"])
+tab1, tab2, tab3 = st.tabs(["🦵  Punts", "🎯  Field Goals", "📊  4th Down Decision"])
 
 
 # ────────────────────────────────────────────────────────────────────────────
 # TAB 1 — PUNTS
 # ────────────────────────────────────────────────────────────────────────────
 with tab1:
-    st.subheader("Punt Rule Impact")
-    st.caption(
-        "UFL rule: no punts inside the opponent's 50-yard line. "
-        "Exemption applies inside the 2-minute warning of each half."
+    st.markdown(
+        f"<p style='color:{MUTED};font-size:0.8rem;margin-bottom:14px;'>"
+        f"UFL rule: no punts inside the opponent's 50-yard line. "
+        f"Exemption applies inside the 2-minute warning of each half.</p>",
+        unsafe_allow_html=True,
     )
 
     # KPI cards
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Punts",        f"{punt_summary['total_punts']:,}")
-    c2.metric("In Opp Territory",   f"{punt_summary['opp_territory']:,}")
-    c3.metric("Banned Punts",       f"{punt_summary['banned']:,}")
-    c4.metric("% Would Be Banned",  f"{punt_summary['pct_banned']:.1f}%")
+    c1.metric("Total Punts",       f"{punt_summary['total_punts']:,}")
+    c2.metric("In Opp Territory",  f"{punt_summary['opp_territory']:,}")
+    c3.metric("Banned Punts",      f"{punt_summary['banned']:,}")
+    c4.metric("% Would Be Banned", f"{punt_summary['pct_banned']:.1f}%")
 
     if exclude_2min and punt_summary["exempt"]:
         st.caption(
@@ -301,15 +489,15 @@ with tab1:
             x="Situation", y="Count",
             text="Count",
             color="Situation",
-            color_discrete_sequence=px.colors.qualitative.Pastel,
+            color_discrete_sequence=[TEAL, GOLD, "#4a9ebb", "#7ecece"],
         )
-        fig_bar.update_traces(textposition="outside")
+        fig_bar.update_traces(textposition="outside", textfont=dict(color=TEXT, size=12))
         fig_bar.update_layout(
             showlegend=False,
             xaxis_title="Score Situation at Time of Punt",
             yaxis_title="Banned Punts",
-            margin=dict(t=10, b=0),
-            yaxis=dict(range=[0, bar_data["Count"].max() * 1.25]),
+            yaxis=dict(range=[0, bar_data["Count"].max() * 1.3]),
+            **CHART_LAYOUT,
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -322,20 +510,24 @@ with tab1:
         fig_hist = px.histogram(
             x=ydstogo_vals, nbins=25,
             labels={"x": "Yards to Go", "y": "Frequency"},
-            color_discrete_sequence=["#636EFA"],
+            color_discrete_sequence=[TEAL],
         )
         fig_hist.add_vline(
-            x=mean_val, line_dash="dash", line_color="firebrick",
+            x=mean_val, line_dash="dash", line_color=GOLD, line_width=2,
             annotation_text=f"Mean: {mean_val:.1f}",
+            annotation_font=dict(color=GOLD, size=11),
             annotation_position="top right",
         )
         fig_hist.add_vline(
-            x=median_val, line_dash="dot", line_color="navy",
+            x=median_val, line_dash="dot", line_color="#a0cfdf", line_width=2,
             annotation_text=f"Median: {median_val:.1f}",
+            annotation_font=dict(color="#a0cfdf", size=11),
             annotation_position="top left",
         )
         fig_hist.update_layout(
-            showlegend=False, margin=dict(t=10, b=0), yaxis_title="Frequency",
+            showlegend=False,
+            yaxis_title="Frequency",
+            **CHART_LAYOUT,
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -352,16 +544,17 @@ with tab1:
 # TAB 2 — FIELD GOALS
 # ────────────────────────────────────────────────────────────────────────────
 with tab2:
-    st.subheader("Field Goal Rule Impact")
-    st.caption(
-        "UFL rule: field goals from 60+ yards are worth **4 points** instead of 3. "
-        "Each made 60+ yard FG generates +1 extra point under the new rule."
+    st.markdown(
+        f"<p style='color:{MUTED};font-size:0.8rem;margin-bottom:14px;'>"
+        f"UFL rule: field goals from 60+ yards are worth <strong>4 points</strong> instead of 3. "
+        f"Each made 60+ yard FG generates +1 extra point under the new rule.</p>",
+        unsafe_allow_html=True,
     )
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total FG Attempts",    f"{fg_summary['total_attempts']:,}")
-    c2.metric("60+ Yard Attempts",    f"{fg_summary['long_attempts']:,}")
-    c3.metric("60+ Yard Makes",       f"{fg_summary['long_made']:,}")
+    c1.metric("Total FG Attempts",     f"{fg_summary['total_attempts']:,}")
+    c2.metric("60+ Yard Attempts",     f"{fg_summary['long_attempts']:,}")
+    c3.metric("60+ Yard Makes",        f"{fg_summary['long_made']:,}")
     c4.metric("Extra Points (League)", f"+{fg_summary['extra_points']:,}")
     st.caption(f"*Make % from 60+ yards: {fg_summary['make_pct']:.1f}%*")
 
@@ -374,13 +567,13 @@ with tab2:
 # TAB 3 — 4TH DOWN DECISION / EPA SWING
 # ────────────────────────────────────────────────────────────────────────────
 with tab3:
-    st.subheader("EPA Swing: Go For It vs Punt")
-    st.caption(
-        "For each yards-to-go bucket, compares the **expected EPA of going for it** "
-        "(weighted by historical 4th-down conversion rates) against the "
-        "**actual EPA of the banned punt plays**."
+    st.markdown(
+        f"<p style='color:{MUTED};font-size:0.8rem;margin-bottom:6px;'>"
+        f"For each yards-to-go bucket, compares the <strong>expected EPA of going for it</strong> "
+        f"(weighted by historical 4th-down conversion rates) against the "
+        f"<strong>actual EPA of the banned punt plays</strong>.</p>",
+        unsafe_allow_html=True,
     )
-
     st.info(
         "**Assumptions:** Conversion rates are from this season's 4th-down run/pass plays. "
         "Expected EPA = P(convert) × EPA_success + P(fail) × EPA_failure. "
@@ -406,10 +599,21 @@ with tab3:
         st.dataframe(epa_display, use_container_width=True)
         st.caption("Styling unavailable in this environment; showing plain table.")
 
-    st.markdown("""
+    st.markdown(f"""
 | EPA Swing | Interpretation |
 |-----------|----------------|
-| **Positive (green)** | Going for it expected to produce more EPA than punting in that distance range |
+| **Positive (green)** | Going for it expected to produce more EPA than punting |
 | **Near zero** | Decision is roughly equivalent in EPA terms |
-| **Negative (red)** | Punting was actually the higher-EPA decision in that distance range |
+| **Negative (red)** | Punting was the higher-EPA decision in that distance range |
 """)
+
+# ── Footer ─────────────────────────────────────────────────────────────────────
+st.divider()
+st.markdown(
+    f"<div style='text-align:center;padding:12px 0 4px 0;'>"
+    f"<p style='color:{MUTED};font-size:0.72rem;margin:0;'>"
+    f"Gus &amp; Dave Sports Podcast — dashboard prototype &nbsp;·&nbsp; "
+    f"Created by <strong style='color:{TEAL};'>Brennan Simpson</strong>"
+    f"</p></div>",
+    unsafe_allow_html=True,
+)
