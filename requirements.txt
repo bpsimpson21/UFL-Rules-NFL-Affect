@@ -1,0 +1,6 @@
+streamlit>=1.32
+plotly>=5.18
+pandas>=1.5
+numpy>=1.26
+pyarrow>=14
+nfl-data-py>=0.3.3
