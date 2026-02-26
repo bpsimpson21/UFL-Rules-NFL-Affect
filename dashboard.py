@@ -236,8 +236,8 @@ CHART_LAYOUT = dict(
     paper_bgcolor=CARD,
     plot_bgcolor=CARD,
     font=dict(color=TEXT, family="sans-serif"),
-    xaxis=dict(gridcolor="#ffffff11", linecolor="#ffffff22", tickfont=dict(color=MUTED)),
-    yaxis=dict(gridcolor="#ffffff11", linecolor="#ffffff22", tickfont=dict(color=MUTED)),
+    xaxis=dict(gridcolor="rgba(255,255,255,0.07)", linecolor="rgba(255,255,255,0.13)", tickfont=dict(color=MUTED)),
+    yaxis=dict(gridcolor="rgba(255,255,255,0.07)", linecolor="rgba(255,255,255,0.13)", tickfont=dict(color=MUTED)),
     margin=dict(t=10, b=0, l=0, r=0),
 )
 
@@ -499,7 +499,7 @@ with tab1:
             **CHART_LAYOUT,
         )
         fig_bar.update_yaxes(title="Banned Punts", range=[0, bar_data["Count"].max() * 1.3])
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width="stretch")
 
     with col_r:
         st.markdown("#### Yards to Go Distribution")
@@ -529,15 +529,15 @@ with tab1:
             yaxis_title="Frequency",
             **CHART_LAYOUT,
         )
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.plotly_chart(fig_hist, width="stretch")
 
     st.divider()
     st.markdown("#### Situation Breakdown")
-    st.dataframe(situation_df, use_container_width=True)
+    st.dataframe(situation_df, width="stretch")
 
     st.divider()
     st.markdown("#### Banned Punts by Team")
-    st.dataframe(team_punt_display, use_container_width=True)
+    st.dataframe(team_punt_display, width="stretch")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -560,7 +560,7 @@ with tab2:
 
     st.divider()
     st.markdown("#### 60+ Yard FGs by Team")
-    st.dataframe(team_fg_table, use_container_width=True)
+    st.dataframe(team_fg_table, width="stretch")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -594,9 +594,9 @@ with tab3:
             .format("{:+.3f}", subset=["EPA if Conv", "EPA if Failed", "Exp EPA (Go)", "Avg Punt EPA", "EPA Swing"])
             .background_gradient(subset=["EPA Swing"], cmap="RdYlGn", vmin=-1.5, vmax=1.5)
         )
-        st.dataframe(styled, use_container_width=True)
+        st.dataframe(styled, width="stretch")
     except Exception:
-        st.dataframe(epa_display, use_container_width=True)
+        st.dataframe(epa_display, width="stretch")
         st.caption("Styling unavailable in this environment; showing plain table.")
 
     st.markdown(f"""
