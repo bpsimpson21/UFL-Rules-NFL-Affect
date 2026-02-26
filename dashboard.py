@@ -486,19 +486,19 @@ with tab1:
         bar_data = situation_df.dropna(subset=["Count"]).reset_index()
         fig_bar = px.bar(
             bar_data,
-            x="Situation", y="Count",
+            x="Situation",
+            y="Count",
             text="Count",
             color="Situation",
-            color_discrete_sequence=[TEAL, GOLD, "#4a9ebb", "#7ecece"],
+            color_discrete_sequence=[TEAL, GOLD, "#4a9ebb"],
         )
-        fig_bar.update_traces(textposition="outside", textfont=dict(color=TEXT, size=12))
+        fig_bar.update_traces(textposition="outside")
         fig_bar.update_layout(
             showlegend=False,
             xaxis_title="Score Situation at Time of Punt",
-            yaxis_title="Banned Punts",
-            yaxis=dict(range=[0, bar_data["Count"].max() * 1.3]),
             **CHART_LAYOUT,
         )
+        fig_bar.update_yaxes(title="Banned Punts", range=[0, bar_data["Count"].max() * 1.3])
         st.plotly_chart(fig_bar, use_container_width=True)
 
     with col_r:
