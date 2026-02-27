@@ -35,7 +35,7 @@ REQUIRED_EPA_COLS = {
     "yardline_100", "half_seconds_remaining",
 }
 REQUIRED_SNEAK_COLS = {
-    "play_type", "rusher_player_name", "passer_player_name", "run_gap",
+    "rush_attempt", "pass_attempt", "rusher_player_id", "passer_player_id",
     "posteam", "down", "ydstogo", "score_differential",
     "third_down_converted", "fourth_down_converted", "game_id",
     "home_team", "total_home_score", "total_away_score",
@@ -233,12 +233,27 @@ def compute_tush_push(season: int):
     pbp = load_pbp(season)
     _check_cols(pbp, REQUIRED_SNEAK_COLS, "tush push")
 
-    sneaks = pbp[
-        (pbp["play_type"] == "run") &
-        (pbp["rusher_player_name"] == pbp["passer_player_name"]) &
-        (pbp["ydstogo"] <= 2) &
-        (pbp["run_gap"].isna() | (pbp["run_gap"] == "middle"))
-    ].copy()
+    # ── Identify QB sneaks ────────────────────────────────────────────────────
+    # Prefer qb_sneak column if it exists and is actually populated
+    if "qb_sneak" in pbp.columns and int(pbp["qb_sneak"].sum()) > 0:
+        sneaks = pbp[pbp["qb_sneak"] == 1].copy()
+    else:
+        # Heuristic: short-yardage rush where the rusher is the team's primary QB.
+        # Primary QB = player with the most pass attempts for that team in that game.
+        qb_by_game = (
+            pbp[pbp["pass_attempt"] == 1]
+            .groupby(["game_id", "posteam"])["passer_player_id"]
+            .agg(lambda x: x.dropna().mode().iloc[0] if x.dropna().size > 0 else None)
+            .reset_index()
+            .rename(columns={"passer_player_id": "primary_qb_id"})
+        )
+        rushes = (
+            pbp[(pbp["rush_attempt"] == 1) & (pbp["ydstogo"] <= 2)]
+            .merge(qb_by_game, on=["game_id", "posteam"], how="left")
+        )
+        sneaks = rushes[
+            rushes["rusher_player_id"] == rushes["primary_qb_id"]
+        ].copy()
 
     # 3rd/4th down conversions (where "conversion" is meaningful)
     sneaks_crit = sneaks[sneaks["down"].isin([3, 4])].copy()
