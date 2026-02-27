@@ -35,7 +35,8 @@ REQUIRED_EPA_COLS = {
     "yardline_100", "half_seconds_remaining",
 }
 REQUIRED_SNEAK_COLS = {
-    "qb_sneak", "posteam", "down", "ydstogo", "score_differential",
+    "play_type", "rusher_player_name", "passer_player_name", "run_gap",
+    "posteam", "down", "ydstogo", "score_differential",
     "third_down_converted", "fourth_down_converted", "game_id",
     "home_team", "total_home_score", "total_away_score",
 }
@@ -232,7 +233,12 @@ def compute_tush_push(season: int):
     pbp = load_pbp(season)
     _check_cols(pbp, REQUIRED_SNEAK_COLS, "tush push")
 
-    sneaks = pbp[pbp["qb_sneak"] == 1].copy()
+    sneaks = pbp[
+        (pbp["play_type"] == "run") &
+        (pbp["rusher_player_name"] == pbp["passer_player_name"]) &
+        (pbp["ydstogo"] <= 2) &
+        (pbp["run_gap"].isna() | (pbp["run_gap"] == "middle"))
+    ].copy()
 
     # 3rd/4th down conversions (where "conversion" is meaningful)
     sneaks_crit = sneaks[sneaks["down"].isin([3, 4])].copy()
