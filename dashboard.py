@@ -248,7 +248,7 @@ def compute_tush_push(season: int):
             .rename(columns={"passer_player_id": "primary_qb_id"})
         )
         rushes = (
-            pbp[(pbp["rush_attempt"] == 1) & (pbp["ydstogo"] <= 2)]
+            pbp[(pbp["rush_attempt"] == 1) & (pbp["ydstogo"] == 1)]
             .merge(qb_by_game, on=["game_id", "posteam"], how="left")
         )
         sneaks = rushes[
@@ -748,8 +748,11 @@ with tab3:
 with tab4:
     st.markdown(
         f"<p style='color:{MUTED};font-size:0.8rem;margin-bottom:14px;'>"
-        f"UFL rule: the &ldquo;tush push&rdquo; (QB sneak with pushing assistance) is banned. "
-        f"No team would be more affected than the "
+        f"The UFL has banned the &ldquo;tush push&rdquo; (QB sneak with pushing assistance). "
+        f"We can&rsquo;t identify confirmed tush pushes without reviewing every play, "
+        f"so this tab analyzes <strong>all QB rushing attempts from exactly 1 yard out</strong> "
+        f"&mdash; the distance where tush pushes almost exclusively occur. "
+        f"No team would lose more under this rule than the "
         f"<strong>Philadelphia Eagles</strong>.</p>",
         unsafe_allow_html=True,
     )
@@ -759,10 +762,10 @@ with tab4:
     # ── League-wide ────────────────────────────────────────────────────────
     st.markdown("#### League-Wide QB Sneaks")
     c1, c2 = st.columns(2)
-    c1.metric("Total QB Sneaks (League)",  f"{tp['n_total']:,}")
+    c1.metric("Total QB Rushes (1 Yd Out)", f"{tp['n_total']:,}")
     c2.metric("Conv Rate on 3rd / 4th Down", f"{tp['league_conv']:.1%}")
 
-    st.markdown("#### QB Sneaks by Team")
+    st.markdown("#### QB Rushes from 1 Yard Out — by Team")
     fig_teams = px.bar(
         tp["team_counts"],
         x="QB Sneaks",
@@ -788,20 +791,21 @@ with tab4:
     st.markdown("#### Eagles Deep-Dive 🦅")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Eagles QB Sneaks",         f"{tp['n_eagles']:,}")
-    c2.metric("Eagles Conv Rate (3rd/4th)", f"{tp['eagles_conv']:.1%}")
-    c3.metric("League Conv Rate (3rd/4th)", f"{tp['league_conv']:.1%}")
-    c4.metric("Wins w/ Critical Sneak",   f"{tp['wins_crit']}")
+    c1.metric("Eagles QB Rushes (1 Yd Out)", f"{tp['n_eagles']:,}")
+    c2.metric("Eagles Conv Rate (3rd/4th)",  f"{tp['eagles_conv']:.1%}")
+    c3.metric("League Conv Rate (3rd/4th)",  f"{tp['league_conv']:.1%}")
+    c4.metric("Wins w/ 1-Yd Conversion",     f"{tp['wins_crit']}")
 
     st.caption(
-        f"*Eagles had a converted QB sneak on 3rd or 4th down in "
-        f"{tp['n_crit_games']} game(s) and won {tp['wins_crit']} of them.*"
+        f"*Eagles had a converted QB rush from 1 yard out on 3rd or 4th down in "
+        f"{tp['n_crit_games']} game(s) and won {tp['wins_crit']} of them. "
+        f"These plays are not confirmed tush pushes — they are all 1-yard QB rushes.*"
     )
 
     col_l, col_r = st.columns(2)
 
     with col_l:
-        st.markdown("#### Eagles Sneaks by Down")
+        st.markdown("#### Eagles QB Rushes (1 Yd Out) by Down")
         _max_down = max(tp["by_down"]["Count"].max(), 1)
         fig_down = px.bar(
             tp["by_down"],
@@ -815,36 +819,23 @@ with tab4:
         st.plotly_chart(fig_down, width="stretch")
 
     with col_r:
-        st.markdown("#### Eagles Sneaks by Yards to Go")
-        _max_ytg = max(tp["by_ydstogo"]["Count"].max(), 1)
-        fig_ytg = px.bar(
-            tp["by_ydstogo"],
-            x="Yards to Go", y="Count",
+        st.markdown("#### Eagles QB Rushes (1 Yd Out) by Game Situation")
+        _sit_data = tp["by_situation"].dropna(subset=["Count"])
+        _max_sit = max(_sit_data["Count"].max(), 1)
+        fig_sit = px.bar(
+            _sit_data,
+            x="Situation", y="Count",
             text="Count",
             color_discrete_sequence=["#004c54"],
         )
-        fig_ytg.update_traces(textposition="outside")
-        fig_ytg.update_layout(showlegend=False, xaxis_title="Yards to Go", **CHART_LAYOUT)
-        fig_ytg.update_yaxes(title="Count", range=[0, _max_ytg * 1.3])
-        st.plotly_chart(fig_ytg, width="stretch")
-
-    st.markdown("#### Eagles Sneaks by Game Situation")
-    _sit_data = tp["by_situation"].dropna(subset=["Count"])
-    _max_sit = max(_sit_data["Count"].max(), 1)
-    fig_sit = px.bar(
-        _sit_data,
-        x="Situation", y="Count",
-        text="Count",
-        color_discrete_sequence=["#004c54"],
-    )
-    fig_sit.update_traces(textposition="outside")
-    fig_sit.update_layout(
-        showlegend=False,
-        xaxis_title="Score Situation at Time of Sneak",
-        **CHART_LAYOUT,
-    )
-    fig_sit.update_yaxes(title="Count", range=[0, _max_sit * 1.3])
-    st.plotly_chart(fig_sit, width="stretch")
+        fig_sit.update_traces(textposition="outside")
+        fig_sit.update_layout(
+            showlegend=False,
+            xaxis_title="Score Situation",
+            **CHART_LAYOUT,
+        )
+        fig_sit.update_yaxes(title="Count", range=[0, _max_sit * 1.3])
+        st.plotly_chart(fig_sit, width="stretch")
 
 
 # ── Footer ─────────────────────────────────────────────────────────────────────
