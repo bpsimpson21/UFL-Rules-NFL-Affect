@@ -599,6 +599,20 @@ with tab1:
         unsafe_allow_html=True,
     )
 
+    # ── Contextual summary ────────────────────────────────────────────────
+    _sit_clean = situation_df.dropna(subset=["Count"])
+    _top_sit = _sit_clean["Count"].idxmax() if len(_sit_clean) else "N/A"
+    _top_sit_pct = _sit_clean.loc[_top_sit, "% of Banned"] if _top_sit != "N/A" else 0
+    _median_ydstogo = banned_df["ydstogo"].median() if len(banned_df) else 0
+    st.info(
+        "**Assumption:** Punts are classified as 'banned' if they occur inside the "
+        "opponent's 50-yard line outside the 2-minute warning exemption window. "
+        "The 2-minute warning toggle in the sidebar controls whether those exempted "
+        f"punts are excluded. "
+        f"**{_top_sit}** teams account for **{_top_sit_pct:.0f}%** of banned punts, "
+        f"and the median yards to go on a banned punt is **{_median_ydstogo:.0f}**."
+    )
+
     # KPI cards
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Punts",       f"{punt_summary['total_punts']:,}")
@@ -687,6 +701,19 @@ with tab2:
         unsafe_allow_html=True,
     )
 
+    # ── Contextual summary ────────────────────────────────────────────────
+    _top_fg_team = team_fg_table.index[0] if len(team_fg_table) else "N/A"
+    _top_fg_pts = int(team_fg_table.iloc[0]["Extra Pts"]) if len(team_fg_table) else 0
+    st.info(
+        "**Assumption:** Under the UFL rule, field goals from 60+ yards are worth "
+        "4 points instead of 3. We calculate extra points as +1 for each made 60+ "
+        "yard FG. This does not account for potential behavioral changes — teams "
+        f"might attempt more long FGs if the reward were higher. "
+        f"**{_top_fg_team}** gained the most extra points (**+{_top_fg_pts}**), "
+        f"and the league-wide make percentage from 60+ yards is "
+        f"**{fg_summary['make_pct']:.1f}%**."
+    )
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total FG Attempts",     f"{fg_summary['total_attempts']:,}")
     c2.metric("60+ Yard Attempts",     f"{fg_summary['long_attempts']:,}")
@@ -710,10 +737,18 @@ with tab3:
         f"<strong>actual EPA of the banned punt plays</strong>.</p>",
         unsafe_allow_html=True,
     )
+    # ── Contextual summary ────────────────────────────────────────────────
+    _epa_swing_col = epa_table["EPA Swing"].dropna()
+    _neg_buckets = _epa_swing_col[_epa_swing_col < 0]
+    _crossover = _neg_buckets.index[0] if len(_neg_buckets) else "none"
+    _conv_01 = epa_table.loc["0–1", "Conv Rate"] if "0–1" in epa_table.index else 0
     st.info(
-        "**Assumptions:** Conversion rates are from this season's 4th-down run/pass plays. "
-        "Expected EPA = P(convert) × EPA_success + P(fail) × EPA_failure. "
-        "No adaptive strategy is assumed — teams play exactly as they did historically."
+        "**Assumption:** EPA Swing compares the expected points added from going for "
+        "it on 4th down vs. punting. A positive EPA Swing means going for it was the "
+        "better decision on average. This assumes teams play exactly as they did "
+        f"historically — it does not model how behavior would change under different "
+        f"rules. Going for it turns negative at **{_crossover}** yards to go, "
+        f"and the 4th-down conversion rate at 0–1 yards is **{_conv_01:.1%}**."
     )
 
     st.divider()
@@ -759,6 +794,18 @@ with tab4:
     )
 
     tp = tush_push_data
+
+    # ── Contextual summary ────────────────────────────────────────────────
+    _top_sneak_team = tp["team_counts"].iloc[-1]["Team"] if len(tp["team_counts"]) else "N/A"
+    _top_sneak_n = int(tp["team_counts"].iloc[-1]["QB Sneaks"]) if len(tp["team_counts"]) else 0
+    st.info(
+        "**Assumption:** These are ALL QB rushing attempts from 1 yard out, not "
+        "confirmed tush pushes. Play-by-play data does not indicate whether pushing "
+        "assistance occurred, so this serves as a proxy for the situations where "
+        f"tush pushes happen. **{_top_sneak_team}** leads the league with "
+        f"**{_top_sneak_n}** QB rushes from 1 yard out, and the league-wide "
+        f"conversion rate on 3rd/4th down is **{tp['league_conv']:.1%}**."
+    )
 
     # ── League-wide ────────────────────────────────────────────────────────
     st.markdown("#### League-Wide QB Sneaks")
