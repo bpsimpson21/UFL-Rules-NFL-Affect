@@ -41,7 +41,11 @@ REQUIRED_SNEAK_COLS = {
     "third_down_converted", "fourth_down_converted", "game_id",
     "home_team", "total_home_score", "total_away_score",
 }
-REQUIRED_2PT_COLS = {"two_point_attempt", "two_point_conv_result", "posteam"}
+REQUIRED_2PT_COLS = {
+    "two_point_attempt", "two_point_conv_result", "posteam",
+    "qtr", "game_id", "home_team", "away_team",
+    "total_home_score", "total_away_score",
+}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -349,11 +353,34 @@ def compute_tush_push(season: int):
 
 
 # ── Computation: 2-point shootout ─────────────────────────────────────────────
+def _simulate_shootout(p: float, q: float, n_sims: int = 1000, max_rounds: int = 50) -> float:
+    """Simulate a UFL-style 2PT shootout. Returns P(team A wins)."""
+    rng = np.random.default_rng(42)
+    a_rolls = rng.random((n_sims, max_rounds))
+    b_rolls = rng.random((n_sims, max_rounds))
+
+    a_converts = a_rolls < p
+    b_converts = b_rolls < q
+
+    a_wins_round = a_converts & ~b_converts
+    decisive = a_wins_round | (~a_converts & b_converts)
+
+    has_decisive = decisive.any(axis=1)
+    first_decisive = decisive.argmax(axis=1)
+
+    sim_idx = np.arange(n_sims)
+    a_won = a_wins_round[sim_idx, first_decisive] & has_decisive
+
+    n_undecided = (~has_decisive).sum()
+    return (a_won.sum() + n_undecided * 0.5) / n_sims
+
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def compute_2pt_shootout(season: int):
     pbp = load_pbp(season)
     _check_cols(pbp, REQUIRED_2PT_COLS, "2-point shootout")
 
+    # ── League-wide 2PT stats ─────────────────────────────────────────────
     attempts = pbp[pbp["two_point_attempt"] == 1].copy()
     attempts["converted"] = attempts["two_point_conv_result"] == "success"
 
@@ -368,37 +395,79 @@ def compute_2pt_shootout(season: int):
         .sort_values("conv_rate", ascending=False)
     )
     team_stats.index.name = "Team"
-
-    # Closed-form shootout win probability.
-    # In each round both teams attempt; if one converts and the other doesn't,
-    # that team wins. Otherwise the round is a draw and they go again.
-    # P(A wins round) = p*(1-q),  P(B wins round) = (1-p)*q
-    # P(A wins | round is decisive) = p*(1-q) / [p*(1-q) + (1-p)*q]
-    # If the denominator is 0 (both rates identical at 0 or 1), P = 0.5.
-    teams = team_stats.index.tolist()
     rates = team_stats["conv_rate"].to_dict()
 
-    avg_win_prob = {}
-    for team_a in teams:
-        p = rates[team_a]
-        probs = []
-        for team_b in teams:
-            if team_b == team_a:
-                continue
-            q = rates[team_b]
-            denom = p * (1 - q) + (1 - p) * q
-            prob = p * (1 - q) / denom if denom > 0 else 0.5
-            probs.append(prob)
-        avg_win_prob[team_a] = np.mean(probs) if probs else 0.5
+    # ── Identify OT games ─────────────────────────────────────────────────
+    ot_plays = pbp[pbp["qtr"] == 5]
+    ot_game_ids = ot_plays["game_id"].unique()
 
-    team_stats["ot_win_pct"] = team_stats.index.map(avg_win_prob)
-    league_avg_ot = np.mean(list(avg_win_prob.values())) if avg_win_prob else 0.5
+    # Get matchup info and actual winner for each OT game
+    final_scores = (
+        pbp.groupby("game_id")
+        .agg(
+            home_team=("home_team", "first"),
+            away_team=("away_team", "first"),
+            final_home=("total_home_score", "max"),
+            final_away=("total_away_score", "max"),
+        )
+    )
+
+    ot_rows = []
+    for gid in ot_game_ids:
+        if gid not in final_scores.index:
+            continue
+        row = final_scores.loc[gid]
+        home, away = row["home_team"], row["away_team"]
+        h_score, a_score = row["final_home"], row["final_away"]
+
+        if h_score > a_score:
+            actual_winner = home
+        elif a_score > h_score:
+            actual_winner = away
+        else:
+            actual_winner = "TIE"
+
+        # Use each team's season-long 2PT conversion rate (default to
+        # league average if a team had zero 2PT attempts)
+        p_home = rates.get(home, league_conv_rate)
+        p_away = rates.get(away, league_conv_rate)
+
+        home_win_pct = _simulate_shootout(p_home, p_away, n_sims=1000)
+
+        sim_favorite = home if home_win_pct >= 0.5 else away
+        fav_matches = (
+            sim_favorite == actual_winner if actual_winner != "TIE" else None
+        )
+
+        ot_rows.append({
+            "Game": f"{away} @ {home}",
+            "Home": home,
+            "Away": away,
+            "Score": f"{int(a_score)}–{int(h_score)}",
+            "Actual Winner": actual_winner,
+            "Home 2PT Rate": p_home,
+            "Away 2PT Rate": p_away,
+            "Home Shootout Win %": home_win_pct,
+            "Away Shootout Win %": 1 - home_win_pct,
+            "Sim Favorite": sim_favorite,
+            "Fav Matches Actual": fav_matches,
+        })
+
+    ot_df = pd.DataFrame(ot_rows)
+    n_ot = len(ot_df)
+    if n_ot > 0:
+        non_tie = ot_df[ot_df["Fav Matches Actual"].notna()]
+        n_different = int((~non_tie["Fav Matches Actual"]).sum())
+    else:
+        n_different = 0
 
     return {
         "n_total": n_total,
         "league_conv_rate": league_conv_rate,
-        "league_avg_ot": league_avg_ot,
         "team_stats": team_stats,
+        "ot_games": ot_df,
+        "n_ot": n_ot,
+        "n_different": n_different,
     }
 
 
@@ -903,114 +972,110 @@ with tab5:
         f"<p style='color:{MUTED};font-size:0.8rem;margin-bottom:14px;'>"
         f"The UFL replaces traditional overtime with a 2-point conversion shootout "
         f"&mdash; teams alternate 2-point attempts until one team converts and the "
-        f"other doesn&rsquo;t. Here we estimate each NFL team&rsquo;s expected OT win "
-        f"probability based on their regular season 2-point conversion rate.</p>",
+        f"other doesn&rsquo;t. We take every NFL game that actually went to overtime "
+        f"and simulate 1,000 UFL-style shootouts using each team&rsquo;s regular "
+        f"season 2-point conversion rate to see how the outcomes might differ.</p>",
         unsafe_allow_html=True,
     )
 
     so = shootout_data
     ts = so["team_stats"]
+    ot_games = so["ot_games"]
 
     # ── KPI cards ──────────────────────────────────────────────────────────
     c1, c2, c3 = st.columns(3)
     c1.metric("Total 2PT Attempts", f"{so['n_total']:,}")
     c2.metric("League 2PT Conv Rate", f"{so['league_conv_rate']:.1%}")
-    c3.metric("Avg Simulated OT Win %", f"{so['league_avg_ot']:.1%}")
+    if so["n_ot"] > 0:
+        c3.metric(
+            "Different Simulated Winner",
+            f"{so['n_different']} of {so['n_ot']} OT games",
+        )
+    else:
+        c3.metric("OT Games", "0")
 
     st.divider()
 
-    # ── Bar charts ─────────────────────────────────────────────────────────
-    col_l, col_r = st.columns(2)
-
-    with col_l:
-        st.markdown("#### Teams by 2PT Conversion Rate")
-        rate_df = (
-            ts.reset_index()
-            .sort_values("conv_rate", ascending=True)
-            .rename(columns={"Team": "Team", "conv_rate": "Conv Rate"})
-        )
-        fig_rate = px.bar(
-            rate_df,
-            x="Conv Rate", y="Team",
-            orientation="h",
-            text=rate_df["Conv Rate"].apply(lambda v: f"{v:.0%}"),
-            color_discrete_sequence=[TEAL],
-        )
-        fig_rate.update_traces(textposition="outside", textfont=dict(color=TEXT, size=11))
-        fig_rate.update_layout(
-            showlegend=False,
-            xaxis_title="2PT Conversion Rate",
-            yaxis_title="",
-            height=max(400, len(rate_df) * 22),
-            **CHART_LAYOUT,
-        )
-        fig_rate.update_xaxes(
-            tickformat=".0%",
-            range=[0, rate_df["Conv Rate"].max() * 1.3 if len(rate_df) else 1],
-        )
-        st.plotly_chart(fig_rate, width="stretch")
-
-    with col_r:
-        st.markdown("#### Teams by Simulated OT Win %")
-        ot_df = (
-            ts.reset_index()
-            .sort_values("ot_win_pct", ascending=True)
-            .rename(columns={"Team": "Team", "ot_win_pct": "OT Win %"})
-        )
-        fig_ot = px.bar(
-            ot_df,
-            x="OT Win %", y="Team",
-            orientation="h",
-            text=ot_df["OT Win %"].apply(lambda v: f"{v:.1%}"),
-            color_discrete_sequence=[GOLD],
-        )
-        fig_ot.update_traces(textposition="outside", textfont=dict(color=TEXT, size=11))
-        fig_ot.update_layout(
-            showlegend=False,
-            xaxis_title="Avg OT Win Probability",
-            yaxis_title="",
-            height=max(400, len(ot_df) * 22),
-            **CHART_LAYOUT,
-        )
-        fig_ot.update_xaxes(
-            tickformat=".0%",
-            range=[0, ot_df["OT Win %"].max() * 1.15 if len(ot_df) else 1],
-        )
-        st.plotly_chart(fig_ot, width="stretch")
-
-    # ── Summary table ──────────────────────────────────────────────────────
-    st.divider()
-    st.markdown("#### Team 2PT Shootout Summary")
-    table_df = (
+    # ── 2PT conversion rate bar chart ──────────────────────────────────────
+    st.markdown("#### Teams by 2PT Conversion Rate")
+    rate_df = (
         ts.reset_index()
-        .rename(columns={
-            "att": "2PT Attempts",
-            "conv": "2PT Conversions",
-            "conv_rate": "2PT Conv Rate",
-            "ot_win_pct": "Simulated OT Win %",
-        })
-        .sort_values("Simulated OT Win %", ascending=False)
-        [["Team", "2PT Attempts", "2PT Conversions", "2PT Conv Rate", "Simulated OT Win %"]]
+        .sort_values("conv_rate", ascending=True)
+        .rename(columns={"conv_rate": "Conv Rate"})
     )
-    try:
-        import matplotlib  # noqa: F401
-        styled_tbl = (
-            table_df.style
-            .format("{:.1%}", subset=["2PT Conv Rate", "Simulated OT Win %"])
-            .background_gradient(
-                subset=["Simulated OT Win %"], cmap="RdYlGn", vmin=0.3, vmax=0.7,
-            )
-            .hide(axis="index")
-        )
-        st.dataframe(styled_tbl, width="stretch")
-    except Exception:
-        st.dataframe(table_df, width="stretch")
+    fig_rate = px.bar(
+        rate_df,
+        x="Conv Rate", y="Team",
+        orientation="h",
+        text=rate_df["Conv Rate"].apply(lambda v: f"{v:.0%}"),
+        color_discrete_sequence=[TEAL],
+    )
+    fig_rate.update_traces(textposition="outside", textfont=dict(color=TEXT, size=11))
+    fig_rate.update_layout(
+        showlegend=False,
+        xaxis_title="2PT Conversion Rate",
+        yaxis_title="",
+        height=max(400, len(rate_df) * 22),
+        **CHART_LAYOUT,
+    )
+    fig_rate.update_xaxes(
+        tickformat=".0%",
+        range=[0, rate_df["Conv Rate"].max() * 1.3 if len(rate_df) else 1],
+    )
+    st.plotly_chart(fig_rate, width="stretch")
 
-    st.caption(
-        "*OT win probability is computed using the closed-form solution: in each round, "
-        "P(team wins) = p×(1−q) / [p×(1−q) + (1−p)×q], where p and q are the two teams' "
-        "conversion rates. Each team's average is taken across all other teams (round-robin).*"
-    )
+    # ── OT game-by-game simulation table ───────────────────────────────────
+    st.divider()
+    st.markdown("#### OT Games — Simulated Shootout Results")
+
+    if so["n_ot"] == 0:
+        st.info("No overtime games found for this season.")
+    else:
+        display_ot = ot_games.copy()
+        display_ot["Fav Match"] = display_ot["Fav Matches Actual"].map(
+            {True: "Yes", False: "No", None: "Tie"}
+        )
+        table_cols = [
+            "Game", "Score", "Actual Winner",
+            "Home 2PT Rate", "Away 2PT Rate",
+            "Home Shootout Win %", "Away Shootout Win %",
+            "Sim Favorite", "Fav Match",
+        ]
+        show_df = display_ot[table_cols].copy()
+
+        try:
+            import matplotlib  # noqa: F401
+            styled_ot = (
+                show_df.style
+                .format("{:.1%}", subset=[
+                    "Home 2PT Rate", "Away 2PT Rate",
+                    "Home Shootout Win %", "Away Shootout Win %",
+                ])
+                .background_gradient(
+                    subset=["Home Shootout Win %"], cmap="RdYlGn", vmin=0.3, vmax=0.7,
+                )
+                .apply(
+                    lambda row: [
+                        "background-color: #e8f5e9" if row["Fav Match"] == "Yes"
+                        else "background-color: #ffebee" if row["Fav Match"] == "No"
+                        else "" for _ in row
+                    ],
+                    axis=1,
+                )
+                .hide(axis="index")
+            )
+            st.dataframe(styled_ot, width="stretch")
+        except Exception:
+            st.dataframe(show_df, width="stretch")
+
+        st.caption(
+            f"*Each OT game is simulated 1,000 times. In each round, both teams attempt "
+            f"a 2-point conversion (success probability = their season-long 2PT rate). "
+            f"If one converts and the other doesn't, that team wins the round. "
+            f"Otherwise the shootout continues. "
+            f"\"Fav Match\" indicates whether the simulated shootout favorite matches "
+            f"the actual OT winner.*"
+        )
 
 
 # ── Footer ─────────────────────────────────────────────────────────────────────
