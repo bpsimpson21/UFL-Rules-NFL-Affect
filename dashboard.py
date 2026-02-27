@@ -10,6 +10,7 @@ responses. Teams are assumed to behave exactly as they did historically.
 import os
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import nfl_data_py as nfl
 
@@ -40,6 +41,7 @@ REQUIRED_SNEAK_COLS = {
     "third_down_converted", "fourth_down_converted", "game_id",
     "home_team", "total_home_score", "total_away_score",
 }
+REQUIRED_2PT_COLS = {"two_point_attempt", "two_point_conv_result", "posteam"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -346,6 +348,60 @@ def compute_tush_push(season: int):
     }
 
 
+# ── Computation: 2-point shootout ─────────────────────────────────────────────
+@st.cache_data(ttl=86400, show_spinner=False)
+def compute_2pt_shootout(season: int):
+    pbp = load_pbp(season)
+    _check_cols(pbp, REQUIRED_2PT_COLS, "2-point shootout")
+
+    attempts = pbp[pbp["two_point_attempt"] == 1].copy()
+    attempts["converted"] = attempts["two_point_conv_result"] == "success"
+
+    n_total = len(attempts)
+    league_conv_rate = attempts["converted"].mean() if n_total > 0 else 0.0
+
+    # Per-team conversion rates
+    team_stats = (
+        attempts.groupby("posteam")
+        .agg(att=("converted", "count"), conv=("converted", "sum"))
+        .assign(conv_rate=lambda df: df["conv"] / df["att"])
+        .sort_values("conv_rate", ascending=False)
+    )
+    team_stats.index.name = "Team"
+
+    # Closed-form shootout win probability.
+    # In each round both teams attempt; if one converts and the other doesn't,
+    # that team wins. Otherwise the round is a draw and they go again.
+    # P(A wins round) = p*(1-q),  P(B wins round) = (1-p)*q
+    # P(A wins | round is decisive) = p*(1-q) / [p*(1-q) + (1-p)*q]
+    # If the denominator is 0 (both rates identical at 0 or 1), P = 0.5.
+    teams = team_stats.index.tolist()
+    rates = team_stats["conv_rate"].to_dict()
+
+    avg_win_prob = {}
+    for team_a in teams:
+        p = rates[team_a]
+        probs = []
+        for team_b in teams:
+            if team_b == team_a:
+                continue
+            q = rates[team_b]
+            denom = p * (1 - q) + (1 - p) * q
+            prob = p * (1 - q) / denom if denom > 0 else 0.5
+            probs.append(prob)
+        avg_win_prob[team_a] = np.mean(probs) if probs else 0.5
+
+    team_stats["ot_win_pct"] = team_stats.index.map(avg_win_prob)
+    league_avg_ot = np.mean(list(avg_win_prob.values())) if avg_win_prob else 0.5
+
+    return {
+        "n_total": n_total,
+        "league_conv_rate": league_conv_rate,
+        "league_avg_ot": league_avg_ot,
+        "team_stats": team_stats,
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # BRAND CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -573,6 +629,7 @@ try:
     fg_summary, team_fg_table = compute_fgs(season)
     epa_table = compute_epa_swing(season, exclude_2min)
     tush_push_data = compute_tush_push(season)
+    shootout_data = compute_2pt_shootout(season)
 except Exception as e:
     st.error(f"❌ Data error: {e}")
     st.stop()
@@ -584,7 +641,7 @@ team_punt_display = (
 )
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["🦵  Punts", "🎯  Field Goals", "📊  4th Down Decision", "🏈  Tush Push"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🦵  Punts", "🎯  Field Goals", "📊  4th Down Decision", "🏈  Tush Push", "🏈  2PT Shootout"])
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -836,6 +893,124 @@ with tab4:
         )
         fig_sit.update_yaxes(title="Count", range=[0, _max_sit * 1.3])
         st.plotly_chart(fig_sit, width="stretch")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# TAB 5 — 2-POINT SHOOTOUT
+# ────────────────────────────────────────────────────────────────────────────
+with tab5:
+    st.markdown(
+        f"<p style='color:{MUTED};font-size:0.8rem;margin-bottom:14px;'>"
+        f"The UFL replaces traditional overtime with a 2-point conversion shootout "
+        f"&mdash; teams alternate 2-point attempts until one team converts and the "
+        f"other doesn&rsquo;t. Here we estimate each NFL team&rsquo;s expected OT win "
+        f"probability based on their regular season 2-point conversion rate.</p>",
+        unsafe_allow_html=True,
+    )
+
+    so = shootout_data
+    ts = so["team_stats"]
+
+    # ── KPI cards ──────────────────────────────────────────────────────────
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total 2PT Attempts", f"{so['n_total']:,}")
+    c2.metric("League 2PT Conv Rate", f"{so['league_conv_rate']:.1%}")
+    c3.metric("Avg Simulated OT Win %", f"{so['league_avg_ot']:.1%}")
+
+    st.divider()
+
+    # ── Bar charts ─────────────────────────────────────────────────────────
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.markdown("#### Teams by 2PT Conversion Rate")
+        rate_df = (
+            ts.reset_index()
+            .sort_values("conv_rate", ascending=True)
+            .rename(columns={"Team": "Team", "conv_rate": "Conv Rate"})
+        )
+        fig_rate = px.bar(
+            rate_df,
+            x="Conv Rate", y="Team",
+            orientation="h",
+            text=rate_df["Conv Rate"].apply(lambda v: f"{v:.0%}"),
+            color_discrete_sequence=[TEAL],
+        )
+        fig_rate.update_traces(textposition="outside", textfont=dict(color=TEXT, size=11))
+        fig_rate.update_layout(
+            showlegend=False,
+            xaxis_title="2PT Conversion Rate",
+            yaxis_title="",
+            height=max(400, len(rate_df) * 22),
+            **CHART_LAYOUT,
+        )
+        fig_rate.update_xaxes(
+            tickformat=".0%",
+            range=[0, rate_df["Conv Rate"].max() * 1.3 if len(rate_df) else 1],
+        )
+        st.plotly_chart(fig_rate, width="stretch")
+
+    with col_r:
+        st.markdown("#### Teams by Simulated OT Win %")
+        ot_df = (
+            ts.reset_index()
+            .sort_values("ot_win_pct", ascending=True)
+            .rename(columns={"Team": "Team", "ot_win_pct": "OT Win %"})
+        )
+        fig_ot = px.bar(
+            ot_df,
+            x="OT Win %", y="Team",
+            orientation="h",
+            text=ot_df["OT Win %"].apply(lambda v: f"{v:.1%}"),
+            color_discrete_sequence=[GOLD],
+        )
+        fig_ot.update_traces(textposition="outside", textfont=dict(color=TEXT, size=11))
+        fig_ot.update_layout(
+            showlegend=False,
+            xaxis_title="Avg OT Win Probability",
+            yaxis_title="",
+            height=max(400, len(ot_df) * 22),
+            **CHART_LAYOUT,
+        )
+        fig_ot.update_xaxes(
+            tickformat=".0%",
+            range=[0, ot_df["OT Win %"].max() * 1.15 if len(ot_df) else 1],
+        )
+        st.plotly_chart(fig_ot, width="stretch")
+
+    # ── Summary table ──────────────────────────────────────────────────────
+    st.divider()
+    st.markdown("#### Team 2PT Shootout Summary")
+    table_df = (
+        ts.reset_index()
+        .rename(columns={
+            "att": "2PT Attempts",
+            "conv": "2PT Conversions",
+            "conv_rate": "2PT Conv Rate",
+            "ot_win_pct": "Simulated OT Win %",
+        })
+        .sort_values("Simulated OT Win %", ascending=False)
+        [["Team", "2PT Attempts", "2PT Conversions", "2PT Conv Rate", "Simulated OT Win %"]]
+    )
+    try:
+        import matplotlib  # noqa: F401
+        styled_tbl = (
+            table_df.style
+            .format("{:.1%}", subset=["2PT Conv Rate", "Simulated OT Win %"])
+            .background_gradient(
+                subset=["Simulated OT Win %"], cmap="RdYlGn", vmin=0.3, vmax=0.7,
+            )
+            .hide(axis="index")
+        )
+        st.dataframe(styled_tbl, width="stretch")
+    except Exception:
+        st.dataframe(table_df, width="stretch")
+
+    st.caption(
+        "*OT win probability is computed using the closed-form solution: in each round, "
+        "P(team wins) = p×(1−q) / [p×(1−q) + (1−p)×q], where p and q are the two teams' "
+        "conversion rates. Each team's average is taken across all other teams (round-robin).*"
+    )
 
 
 # ── Footer ─────────────────────────────────────────────────────────────────────
