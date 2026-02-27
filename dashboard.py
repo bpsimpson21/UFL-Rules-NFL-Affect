@@ -34,6 +34,11 @@ REQUIRED_EPA_COLS = {
     "play_type", "down", "ydstogo", "epa", "fourth_down_converted",
     "yardline_100", "half_seconds_remaining",
 }
+REQUIRED_SNEAK_COLS = {
+    "qb_sneak", "posteam", "down", "ydstogo", "score_differential",
+    "third_down_converted", "fourth_down_converted", "game_id",
+    "home_team", "total_home_score", "total_away_score",
+}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -219,6 +224,105 @@ def compute_epa_swing(season: int, exclude_2min: bool):
         "EPA if Failed", "Exp EPA (Go)", "Avg Punt EPA", "EPA Swing",
     ]
     return tbl
+
+
+# ── Computation: tush push ─────────────────────────────────────────────────────
+@st.cache_data(ttl=86400, show_spinner=False)
+def compute_tush_push(season: int):
+    pbp = load_pbp(season)
+    _check_cols(pbp, REQUIRED_SNEAK_COLS, "tush push")
+
+    sneaks = pbp[pbp["qb_sneak"] == 1].copy()
+
+    # 3rd/4th down conversions (where "conversion" is meaningful)
+    sneaks_crit = sneaks[sneaks["down"].isin([3, 4])].copy()
+    sneaks_crit["converted"] = (
+        ((sneaks_crit["down"] == 3) & (sneaks_crit["third_down_converted"] == 1)) |
+        ((sneaks_crit["down"] == 4) & (sneaks_crit["fourth_down_converted"] == 1))
+    )
+    league_conv = sneaks_crit["converted"].mean() if len(sneaks_crit) > 0 else 0.0
+
+    # Team counts (all downs), sorted ascending so highest lands at top of h-bar
+    team_counts = (
+        sneaks.groupby("posteam").size()
+        .sort_values(ascending=True)
+        .reset_index()
+    )
+    team_counts.columns = ["Team", "QB Sneaks"]
+    team_counts["color"] = [
+        "#004c54" if t == "PHI" else "#b0b8c1" for t in team_counts["Team"]
+    ]
+
+    # Eagles subset
+    eagles = sneaks[sneaks["posteam"] == "PHI"].copy()
+    eagles_crit = sneaks_crit[sneaks_crit["posteam"] == "PHI"].copy()
+    eagles_conv = eagles_crit["converted"].mean() if len(eagles_crit) > 0 else 0.0
+
+    # Eagles by down
+    _down_labels = {1: "1st Down", 2: "2nd Down", 3: "3rd Down", 4: "4th Down"}
+    eagles_by_down = (
+        eagles.groupby("down").size()
+        .rename("Count")
+        .reset_index()
+    )
+    eagles_by_down["Down"] = eagles_by_down["down"].map(_down_labels)
+    eagles_by_down = eagles_by_down[["Down", "Count"]]
+
+    # Eagles by ydstogo bucket
+    eagles["bucket"] = pd.cut(
+        eagles["ydstogo"], bins=BUCKET_BINS,
+        labels=BUCKET_LABELS, right=True, include_lowest=True,
+    )
+    eagles_by_ydstogo = (
+        eagles.groupby("bucket", observed=True).size()
+        .rename("Count")
+        .reindex(BUCKET_LABELS)
+        .fillna(0)
+        .astype(int)
+        .reset_index()
+    )
+    eagles_by_ydstogo.columns = ["Yards to Go", "Count"]
+
+    # Eagles by game situation
+    eagles["situation"] = eagles["score_differential"].apply(score_situation)
+    eagles_by_sit = (
+        eagles.groupby("situation").size()
+        .rename("Count")
+        .reindex(SITUATION_ORDER)
+        .reset_index()
+    )
+    eagles_by_sit.columns = ["Situation", "Count"]
+
+    # Games won with a critical converted sneak (3rd/4th down, Eagles, converted)
+    critical_game_ids = set(eagles_crit[eagles_crit["converted"]]["game_id"].unique())
+    final = pbp.groupby("game_id").agg(
+        home_team=("home_team", "first"),
+        final_home=("total_home_score", "max"),
+        final_away=("total_away_score", "max"),
+    )
+    wins_crit = sum(
+        (
+            (final.loc[gid, "home_team"] == "PHI" and
+             final.loc[gid, "final_home"] > final.loc[gid, "final_away"])
+            or
+            (final.loc[gid, "home_team"] != "PHI" and
+             final.loc[gid, "final_away"] > final.loc[gid, "final_home"])
+        )
+        for gid in critical_game_ids if gid in final.index
+    )
+
+    return {
+        "n_total":       len(sneaks),
+        "league_conv":   league_conv,
+        "n_eagles":      len(eagles),
+        "eagles_conv":   eagles_conv,
+        "n_crit_games":  len(critical_game_ids),
+        "wins_crit":     wins_crit,
+        "team_counts":   team_counts,
+        "by_down":       eagles_by_down,
+        "by_ydstogo":    eagles_by_ydstogo,
+        "by_situation":  eagles_by_sit,
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -447,6 +551,7 @@ try:
     )
     fg_summary, team_fg_table = compute_fgs(season)
     epa_table = compute_epa_swing(season, exclude_2min)
+    tush_push_data = compute_tush_push(season)
 except Exception as e:
     st.error(f"❌ Data error: {e}")
     st.stop()
@@ -458,7 +563,7 @@ team_punt_display = (
 )
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["🦵  Punts", "🎯  Field Goals", "📊  4th Down Decision"])
+tab1, tab2, tab3, tab4 = st.tabs(["🦵  Punts", "🎯  Field Goals", "📊  4th Down Decision", "🏈  Tush Push"])
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -615,6 +720,111 @@ with tab3:
 | **Near zero** | Decision is roughly equivalent in EPA terms |
 | **Negative (red)** | Punting was the higher-EPA decision in that distance range |
 """)
+
+# ────────────────────────────────────────────────────────────────────────────
+# TAB 4 — TUSH PUSH
+# ────────────────────────────────────────────────────────────────────────────
+with tab4:
+    st.markdown(
+        f"<p style='color:{MUTED};font-size:0.8rem;margin-bottom:14px;'>"
+        f"UFL rule: the &ldquo;tush push&rdquo; (QB sneak with pushing assistance) is banned. "
+        f"No team would be more affected than the "
+        f"<strong>Philadelphia Eagles</strong>.</p>",
+        unsafe_allow_html=True,
+    )
+
+    tp = tush_push_data
+
+    # ── League-wide ────────────────────────────────────────────────────────
+    st.markdown("#### League-Wide QB Sneaks")
+    c1, c2 = st.columns(2)
+    c1.metric("Total QB Sneaks (League)",  f"{tp['n_total']:,}")
+    c2.metric("Conv Rate on 3rd / 4th Down", f"{tp['league_conv']:.1%}")
+
+    st.markdown("#### QB Sneaks by Team")
+    fig_teams = px.bar(
+        tp["team_counts"],
+        x="QB Sneaks",
+        y="Team",
+        orientation="h",
+        color="color",
+        color_discrete_map="identity",
+        text="QB Sneaks",
+    )
+    fig_teams.update_traces(textposition="outside", textfont=dict(color=TEXT, size=11))
+    fig_teams.update_layout(
+        showlegend=False,
+        xaxis_title="Number of QB Sneaks",
+        yaxis_title="",
+        height=max(400, len(tp["team_counts"]) * 22),
+        **CHART_LAYOUT,
+    )
+    fig_teams.update_xaxes(range=[0, tp["team_counts"]["QB Sneaks"].max() * 1.25])
+    st.plotly_chart(fig_teams, width="stretch")
+
+    # ── Eagles deep-dive ───────────────────────────────────────────────────
+    st.divider()
+    st.markdown("#### Eagles Deep-Dive 🦅")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Eagles QB Sneaks",         f"{tp['n_eagles']:,}")
+    c2.metric("Eagles Conv Rate (3rd/4th)", f"{tp['eagles_conv']:.1%}")
+    c3.metric("League Conv Rate (3rd/4th)", f"{tp['league_conv']:.1%}")
+    c4.metric("Wins w/ Critical Sneak",   f"{tp['wins_crit']}")
+
+    st.caption(
+        f"*Eagles had a converted QB sneak on 3rd or 4th down in "
+        f"{tp['n_crit_games']} game(s) and won {tp['wins_crit']} of them.*"
+    )
+
+    col_l, col_r = st.columns(2)
+
+    with col_l:
+        st.markdown("#### Eagles Sneaks by Down")
+        _max_down = max(tp["by_down"]["Count"].max(), 1)
+        fig_down = px.bar(
+            tp["by_down"],
+            x="Down", y="Count",
+            text="Count",
+            color_discrete_sequence=["#004c54"],
+        )
+        fig_down.update_traces(textposition="outside")
+        fig_down.update_layout(showlegend=False, xaxis_title="", **CHART_LAYOUT)
+        fig_down.update_yaxes(title="Count", range=[0, _max_down * 1.3])
+        st.plotly_chart(fig_down, width="stretch")
+
+    with col_r:
+        st.markdown("#### Eagles Sneaks by Yards to Go")
+        _max_ytg = max(tp["by_ydstogo"]["Count"].max(), 1)
+        fig_ytg = px.bar(
+            tp["by_ydstogo"],
+            x="Yards to Go", y="Count",
+            text="Count",
+            color_discrete_sequence=["#004c54"],
+        )
+        fig_ytg.update_traces(textposition="outside")
+        fig_ytg.update_layout(showlegend=False, xaxis_title="Yards to Go", **CHART_LAYOUT)
+        fig_ytg.update_yaxes(title="Count", range=[0, _max_ytg * 1.3])
+        st.plotly_chart(fig_ytg, width="stretch")
+
+    st.markdown("#### Eagles Sneaks by Game Situation")
+    _sit_data = tp["by_situation"].dropna(subset=["Count"])
+    _max_sit = max(_sit_data["Count"].max(), 1)
+    fig_sit = px.bar(
+        _sit_data,
+        x="Situation", y="Count",
+        text="Count",
+        color_discrete_sequence=["#004c54"],
+    )
+    fig_sit.update_traces(textposition="outside")
+    fig_sit.update_layout(
+        showlegend=False,
+        xaxis_title="Score Situation at Time of Sneak",
+        **CHART_LAYOUT,
+    )
+    fig_sit.update_yaxes(title="Count", range=[0, _max_sit * 1.3])
+    st.plotly_chart(fig_sit, width="stretch")
+
 
 # ── Footer ─────────────────────────────────────────────────────────────────────
 st.divider()

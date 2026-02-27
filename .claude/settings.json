@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/pip.exe install notebook ipykernel matplotlib seaborn)",
+      "Bash(.venv/Scripts/pip.exe install streamlit plotly)",
+      "Bash(python -m py_compile dashboard.py)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\bpsim\\.claude\\projects\\c--Users-bpsim-UFL-Rules-NFL-Affect\\memory"
+    ]
+  }
+}

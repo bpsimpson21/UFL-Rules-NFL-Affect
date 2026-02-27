@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -c \"import notebook; import ipykernel; print\\(''both installed''\\)\")"
+    ]
+  }
+}
